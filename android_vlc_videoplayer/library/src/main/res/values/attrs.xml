@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <declare-styleable name="VLCVideoPlayer">
+
+        <attr name="vvp_source" format="string" />
+
+        <attr name="vvp_playDrawable" format="reference" />
+        <attr name="vvp_pauseDrawable" format="reference" />
+
+        <attr name="vvp_hideControlsOnPlay" format="boolean" />
+        <attr name="vvp_autoPlay" format="boolean" />
+
+        <attr name="vvp_disableControls" format="boolean" />
+
+        <attr name="vvp_autoFullscreen" format="boolean" />
+
+        <attr name="vvp_loop" format="boolean" />
+
+    </declare-styleable>
+
+</resources>
