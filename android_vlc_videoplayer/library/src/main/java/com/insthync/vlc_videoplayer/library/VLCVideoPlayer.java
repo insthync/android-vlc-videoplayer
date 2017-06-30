@@ -46,7 +46,7 @@ public class VLCVideoPlayer extends FrameLayout implements
     public static final String TAG = "VLCVideoPlayer";
     private FrameLayout mSurfaceFrame;
     private SurfaceView mSurface;
-    private SurfaceHolder mHolder;
+    private SurfaceHolder mSurfaceHolder;
     private MediaPlayer mPlayer;
     private Uri mSource;
     private LibVLC mVlcInstance;
@@ -236,11 +236,11 @@ public class VLCVideoPlayer extends FrameLayout implements
         mVideoFrame = li.inflate(R.layout.videoplayer_include_view, this, false);
         addView(mVideoFrame);
 
-        mSurfaceFrame = (FrameLayout) findViewById(R.id.surface_frame);
-        mSurface = (SurfaceView) findViewById(R.id.surface_view);
-        mHolder = mSurface.getHolder();
-        mHolder.setFormat(PixelFormat.RGBX_8888);
-        mHolder.setKeepScreenOn(true);
+        mSurfaceFrame = (FrameLayout) mVideoFrame.findViewById(R.id.surface_frame);
+        mSurface = (SurfaceView) mVideoFrame.findViewById(R.id.surface_view);
+        mSurfaceHolder = mSurface.getHolder();
+        mSurfaceHolder.setFormat(PixelFormat.RGBX_8888);
+        mSurfaceHolder.setKeepScreenOn(true);
 
         // Inflate and add progress
         mProgressFrame = li.inflate(R.layout.videoplayer_include_progress, this, false);
@@ -249,15 +249,12 @@ public class VLCVideoPlayer extends FrameLayout implements
         // Instantiate and add click frame (used to toggle controls)
         mClickFrame = new FrameLayout(getContext());
         //noinspection RedundantCast
-        ((FrameLayout) mClickFrame)
-                .setForeground(Util.resolveDrawable(getContext(), R.attr.selectableItemBackground));
+        ((FrameLayout) mClickFrame).setForeground(Util.resolveDrawable(getContext(), R.attr.selectableItemBackground));
         addView(mClickFrame, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // Inflate controls
         mControlsFrame = li.inflate(R.layout.videoplayer_include_controls, this, false);
-        final FrameLayout.LayoutParams controlsLp =
-                new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        final FrameLayout.LayoutParams controlsLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         controlsLp.gravity = Gravity.BOTTOM;
         addView(mControlsFrame, controlsLp);
 
@@ -456,7 +453,7 @@ public class VLCVideoPlayer extends FrameLayout implements
         FrameLayout surfaceFrame;
 
         surface = mSurface;
-        surfaceHolder = mHolder;
+        surfaceHolder = mSurfaceHolder;
         surfaceFrame = mSurfaceFrame;
 
         // force surface buffer size
@@ -567,8 +564,6 @@ public class VLCVideoPlayer extends FrameLayout implements
             if (mPlayer.isPlaying()) {
                 pause();
             } else {
-                if (mHideControlsOnPlay && !mControlsDisabled)
-                    hideControls();
                 play();
             }
         }
