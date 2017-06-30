@@ -16,7 +16,6 @@ public class MainActivity extends AppCompatActivity {
         videoPlayer = (VLCVideoPlayer)findViewById(R.id.videoPlayer);
         videoPlayer.setSource(Uri.parse("http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4"));
         videoPlayer.setLoop(true);
-        videoPlayer.setAutoFullscreen(true);
         videoPlayer.play();
         super.onCreate(savedInstanceState);
     }

@@ -8,13 +8,11 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.PixelFormat;
-import android.graphics.SurfaceTexture;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.support.annotation.IntRange;
 import android.support.annotation.NonNull;
-import android.support.v4.view.ViewCompat;
 import android.support.v7.content.res.AppCompatResources;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -22,7 +20,6 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
@@ -30,7 +27,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.videolan.libvlc.IVLCVout;
 import org.videolan.libvlc.LibVLC;
@@ -70,7 +66,6 @@ public class VLCVideoPlayer extends FrameLayout implements
     private boolean mHideControlsOnPlay = true;
     private boolean mAutoPlay = true;
     private boolean mControlsDisabled = false;
-    private boolean mAutoFullscreen = false;
     private boolean mLoop = false;
 
     private int mVideoWidth;
@@ -87,7 +82,7 @@ public class VLCVideoPlayer extends FrameLayout implements
     private static final int SURFACE_16_9 = 4;
     private static final int SURFACE_4_3 = 5;
     private static final int SURFACE_ORIGINAL = 6;
-    private int mCurrentSize = SURFACE_ORIGINAL;
+    private int mCurrentSize = SURFACE_FIT_VERTICAL;
 
     private boolean mWasPlayed = false;
     private long mPlayedTime = 0;
@@ -135,7 +130,6 @@ public class VLCVideoPlayer extends FrameLayout implements
                 mAutoPlay = a.getBoolean(R.styleable.VLCVideoPlayer_vvp_autoPlay, false);
                 mControlsDisabled = a.getBoolean(R.styleable.VLCVideoPlayer_vvp_disableControls, false);
 
-                mAutoFullscreen = a.getBoolean(R.styleable.VLCVideoPlayer_vvp_autoFullscreen, false);
                 mLoop = a.getBoolean(R.styleable.VLCVideoPlayer_vvp_loop, false);
 
             } finally {
@@ -177,10 +171,6 @@ public class VLCVideoPlayer extends FrameLayout implements
         mHideControlsOnPlay = hideControlsOnPlay;
     }
 
-    public void setAutoFullscreen(boolean autoFullscreen) {
-        mAutoFullscreen = autoFullscreen;
-    }
-
     public void setAutoPlay(boolean autoPlay) {
         mAutoPlay = autoPlay;
     }
@@ -199,6 +189,9 @@ public class VLCVideoPlayer extends FrameLayout implements
             mPlayer.play();
 
         mBtnPlayPause.setImageDrawable(mPauseDrawable);
+
+        if (mHideControlsOnPlay && !mControlsDisabled)
+            hideControls();
     }
 
     public void pause() {
@@ -258,10 +251,7 @@ public class VLCVideoPlayer extends FrameLayout implements
         //noinspection RedundantCast
         ((FrameLayout) mClickFrame)
                 .setForeground(Util.resolveDrawable(getContext(), R.attr.selectableItemBackground));
-        addView(
-                mClickFrame,
-                new ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        addView(mClickFrame, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // Inflate controls
         mControlsFrame = li.inflate(R.layout.videoplayer_include_controls, this, false);
@@ -329,7 +319,7 @@ public class VLCVideoPlayer extends FrameLayout implements
                         new AnimatorListenerAdapter() {
                             @Override
                             public void onAnimationEnd(Animator animation) {
-                                if (mAutoFullscreen) setFullscreen(false);
+
                             }
                         })
                 .start();
@@ -348,9 +338,8 @@ public class VLCVideoPlayer extends FrameLayout implements
                         new AnimatorListenerAdapter() {
                             @Override
                             public void onAnimationEnd(Animator animation) {
-                                setFullscreen(true);
-
-                                if (mControlsFrame != null) mControlsFrame.setVisibility(View.INVISIBLE);
+                                if (mControlsFrame != null)
+                                    mControlsFrame.setVisibility(View.INVISIBLE);
                             }
                         })
                 .start();
@@ -548,8 +537,8 @@ public class VLCVideoPlayer extends FrameLayout implements
             case MediaPlayer.Event.Buffering:
                 float buffering = event.getBuffering();
                 if (mSeeker != null) {
-                    if (buffering == 100) mSeeker.setSecondaryProgress(0);
-                    else mSeeker.setSecondaryProgress(Math.round(mSeeker.getMax() * buffering));
+                    if (buffering == 100) mSeeker.setSecondaryProgress(mSeeker.getMax());
+                    else mSeeker.setSecondaryProgress(Math.round(mSeeker.getMax() * buffering / 100f));
                 }
                 break;
             case MediaPlayer.Event.TimeChanged:
@@ -578,7 +567,8 @@ public class VLCVideoPlayer extends FrameLayout implements
             if (mPlayer.isPlaying()) {
                 pause();
             } else {
-                if (mHideControlsOnPlay && !mControlsDisabled) hideControls();
+                if (mHideControlsOnPlay && !mControlsDisabled)
+                    hideControls();
                 play();
             }
         }
@@ -628,31 +618,5 @@ public class VLCVideoPlayer extends FrameLayout implements
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         changeSurfaceSize();
-    }
-
-    @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
-    private void setFullscreen(boolean fullscreen) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            if (mAutoFullscreen) {
-                int flags = !fullscreen ? 0 : View.SYSTEM_UI_FLAG_LOW_PROFILE;
-
-                ViewCompat.setFitsSystemWindows(mControlsFrame, !fullscreen);
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                    flags |=
-                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-                    if (fullscreen) {
-                        flags |=
-                                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                                        | View.SYSTEM_UI_FLAG_IMMERSIVE;
-                    }
-                }
-
-                mClickFrame.setSystemUiVisibility(flags);
-            }
-        }
     }
 }
