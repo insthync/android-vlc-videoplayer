@@ -15,8 +15,10 @@ import android.support.annotation.NonNull;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.content.res.AppCompatResources;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,8 +27,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
-
-import com.insthync.vlc_videoplayer.library.R;
 
 import org.videolan.libvlc.IVLCVout;
 import org.videolan.libvlc.LibVLC;
@@ -44,6 +44,7 @@ public class VLCVideoPlayer extends FrameLayout implements
         View.OnClickListener,
         SeekBar.OnSeekBarChangeListener {
 
+    public static final String TAG = "VLCVideoPlayer";
     private TextureView mTextureView;
     private MediaPlayer mPlayer;
     private Uri mSource;
@@ -53,6 +54,7 @@ public class VLCVideoPlayer extends FrameLayout implements
     private int mVideoWidth;
     private int mVideoHeight;
 
+    private View mVideoViewFrame;
     private View mControlsFrame;
     private View mProgressFrame;
     private View mClickFrame;
@@ -90,6 +92,9 @@ public class VLCVideoPlayer extends FrameLayout implements
     private void init(Context context, AttributeSet attrs) {
         mVlcInstance = new LibVLC(context, new VlcOptions().get());
 
+        mPlayDrawable = AppCompatResources.getDrawable(context, R.drawable.videoplayer_action_play);
+        mPauseDrawable = AppCompatResources.getDrawable(context, R.drawable.videoplayer_action_pause);
+
         if (attrs != null) {
             TypedArray a = context.getTheme().obtainStyledAttributes(attrs, R.styleable.VLCVideoPlayer, 0, 0);
 
@@ -117,11 +122,6 @@ public class VLCVideoPlayer extends FrameLayout implements
             } finally {
                 a.recycle();
             }
-        } else {
-            if (mPlayDrawable == null)
-                mPlayDrawable = AppCompatResources.getDrawable(context, R.drawable.videoplayer_action_play);
-            if (mPauseDrawable == null)
-                mPauseDrawable = AppCompatResources.getDrawable(context, R.drawable.videoplayer_action_pause);
         }
     }
 
@@ -229,22 +229,18 @@ public class VLCVideoPlayer extends FrameLayout implements
 
         setKeepScreenOn(true);
 
-        // Instantiate and add TextureView for rendering
-        final FrameLayout.LayoutParams textureLp =
-                new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        mTextureView = new TextureView(getContext());
-        addView(mTextureView, textureLp);
-        mTextureView.setSurfaceTextureListener(this);
+        final LayoutInflater li = LayoutInflater.from(getContext());
 
         mPlayer = new MediaPlayer(mVlcInstance);
         mPlayer.setEventListener(this);
+        mPlayer.setVideoTrackEnabled(true);
 
-        IVLCVout vlcOut = mPlayer.getVLCVout();
-        vlcOut.addCallback(this);
-        vlcOut.setVideoView(mTextureView);
-        vlcOut.attachViews();
+        // Inflate and add video view
+        mVideoViewFrame = li.inflate(R.layout.videoplayer_include_view, this, false);
+        addView(mVideoViewFrame);
 
-        final LayoutInflater li = LayoutInflater.from(getContext());
+        mTextureView = (TextureView)findViewById(R.id.videoView);
+        mTextureView.setSurfaceTextureListener(this);
 
         // Inflate and add progress
         mProgressFrame = li.inflate(R.layout.videoplayer_include_progress, this, false);
@@ -293,6 +289,7 @@ public class VLCVideoPlayer extends FrameLayout implements
 
         mBtnPlayPause = (ImageButton) mControlsFrame.findViewById(R.id.btnPlayPause);
         mBtnPlayPause.setOnClickListener(this);
+        mBtnPlayPause.setImageDrawable(mPlayDrawable);
 
         setControlsEnabled(false);
         if (mSource != null)
@@ -389,6 +386,13 @@ public class VLCVideoPlayer extends FrameLayout implements
         mTextureViewWidth = width;
         mTextureViewHeight = height;
         adjustAspectRatio(mTextureViewWidth, mTextureViewHeight, mVideoWidth, mVideoHeight);
+
+        IVLCVout vlcOut = mPlayer.getVLCVout();
+        if (!vlcOut.areViewsAttached()) {
+            vlcOut.addCallback(this);
+            vlcOut.setVideoView(mTextureView);
+            vlcOut.attachViews();
+        }
     }
 
     @Override
@@ -434,6 +438,7 @@ public class VLCVideoPlayer extends FrameLayout implements
     public void onEvent(MediaPlayer.Event event) {
         switch (event.type) {
             case MediaPlayer.Event.MediaChanged:
+                Log.d(TAG, "MediaChanged");
                 mProgressFrame.setVisibility(View.VISIBLE);
                 mSeeker.setProgress(0);
                 mSeeker.setEnabled(false);
@@ -441,9 +446,11 @@ public class VLCVideoPlayer extends FrameLayout implements
                 mWasPlayed = false;
                 break;
             case MediaPlayer.Event.Opening:
+                Log.d(TAG, "Opening");
                 mWasPlayed = false;
                 break;
             case MediaPlayer.Event.Playing:
+                Log.d(TAG, "Playing");
                 if (!mWasPlayed) {
                     mProgressFrame.setVisibility(View.INVISIBLE);
                     mLabelPosition.setText(Util.getDurationString(0, false));
@@ -455,6 +462,7 @@ public class VLCVideoPlayer extends FrameLayout implements
                 }
                 break;
             case MediaPlayer.Event.Buffering:
+                Log.d(TAG, "Buffering");
                 float buffering = event.getBuffering();
                 if (mSeeker != null) {
                     if (buffering == 100) mSeeker.setSecondaryProgress(0);
@@ -462,6 +470,7 @@ public class VLCVideoPlayer extends FrameLayout implements
                 }
                 break;
             case MediaPlayer.Event.TimeChanged:
+                Log.d(TAG, "TimeChanged");
                 long pos = mPlayer.getTime();
                 final long dur = mPlayer.getLength();
                 if (pos > dur) pos = dur;
@@ -471,8 +480,9 @@ public class VLCVideoPlayer extends FrameLayout implements
                 mSeeker.setMax((int)dur);
                 break;
             case MediaPlayer.Event.EndReached:
+                Log.d(TAG, "EndReached");
+                stop();
                 if (mLoop) {
-                    stop();
                     play();
                 }
                 break;
@@ -502,6 +512,11 @@ public class VLCVideoPlayer extends FrameLayout implements
 
     @Override
     public void onStopTrackingTouch(SeekBar seekBar) {
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
     }
 
     @Override

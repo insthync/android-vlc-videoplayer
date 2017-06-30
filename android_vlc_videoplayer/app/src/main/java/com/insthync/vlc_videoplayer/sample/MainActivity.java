@@ -4,7 +4,6 @@ import android.net.Uri;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 
-import com.insthync.vlc_videoplayer.sample.R;
 import com.insthync.vlc_videoplayer.library.VLCVideoPlayer;
 
 public class MainActivity extends AppCompatActivity {
@@ -17,6 +16,7 @@ public class MainActivity extends AppCompatActivity {
 
         videoPlayer = (VLCVideoPlayer)findViewById(R.id.videoPlayer);
         videoPlayer.setSource(Uri.parse("http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4"));
+        videoPlayer.play();
     }
 
     @Override
