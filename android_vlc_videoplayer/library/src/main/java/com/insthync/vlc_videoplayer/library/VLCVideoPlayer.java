@@ -3,9 +3,11 @@ package com.insthync.vlc_videoplayer.library;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
-import android.graphics.Matrix;
+import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -18,6 +20,7 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
@@ -27,6 +30,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.videolan.libvlc.IVLCVout;
 import org.videolan.libvlc.LibVLC;
@@ -38,23 +42,20 @@ import org.videolan.libvlc.MediaPlayer;
  */
 
 public class VLCVideoPlayer extends FrameLayout implements
-        TextureView.SurfaceTextureListener,
         MediaPlayer.EventListener,
         IVLCVout.Callback,
         View.OnClickListener,
         SeekBar.OnSeekBarChangeListener {
 
     public static final String TAG = "VLCVideoPlayer";
-    private TextureView mTextureView;
+    private FrameLayout mSurfaceFrame;
+    private SurfaceView mSurface;
+    private SurfaceHolder mHolder;
     private MediaPlayer mPlayer;
     private Uri mSource;
     private LibVLC mVlcInstance;
-    private int mTextureViewWidth;
-    private int mTextureViewHeight;
-    private int mVideoWidth;
-    private int mVideoHeight;
 
-    private View mVideoViewFrame;
+    private View mVideoFrame;
     private View mControlsFrame;
     private View mProgressFrame;
     private View mClickFrame;
@@ -72,7 +73,24 @@ public class VLCVideoPlayer extends FrameLayout implements
     private boolean mAutoFullscreen = false;
     private boolean mLoop = false;
 
+    private int mVideoWidth;
+    private int mVideoHeight;
+    private int mVideoVisibleWidth;
+    private int mVideoVisibleHeight;
+    private int mSarNum;
+    private int mSarDen;
+
+    private static final int SURFACE_BEST_FIT = 0;
+    private static final int SURFACE_FIT_HORIZONTAL = 1;
+    private static final int SURFACE_FIT_VERTICAL = 2;
+    private static final int SURFACE_FILL = 3;
+    private static final int SURFACE_16_9 = 4;
+    private static final int SURFACE_4_3 = 5;
+    private static final int SURFACE_ORIGINAL = 6;
+    private int mCurrentSize = SURFACE_ORIGINAL;
+
     private boolean mWasPlayed = false;
+    private long mPlayedTime = 0;
 
     public VLCVideoPlayer(Context context) {
         super(context);
@@ -100,7 +118,8 @@ public class VLCVideoPlayer extends FrameLayout implements
 
             try {
                 String source = a.getString(R.styleable.VLCVideoPlayer_vvp_source);
-                if (source != null && !source.trim().isEmpty()) mSource = Uri.parse(source);
+                if (source != null && !source.trim().isEmpty())
+                    mSource = Uri.parse(source);
                 int playDrawableResId = a.getResourceId(R.styleable.VLCVideoPlayer_vvp_playDrawable, -1);
                 int pauseDrawableResId = a.getResourceId(R.styleable.VLCVideoPlayer_vvp_pauseDrawable, -1);
 
@@ -130,6 +149,11 @@ public class VLCVideoPlayer extends FrameLayout implements
     }
 
     public void setSource(@NonNull Uri source) {
+        boolean isOldSource = mSource != null && source != null && mSource.getPath().equals(source.getPath());
+
+        Log.d(TAG, "mSource " + mSource + " source " + source);
+        if (mSource != null && source != null)
+        Log.d(TAG, "setSource -> isOldSource = " + isOldSource + "(" +mSource.getPath()+ " / "+source.getPath()+")");
         boolean hadSource = mSource != null;
 
         if (hadSource)
@@ -140,8 +164,11 @@ public class VLCVideoPlayer extends FrameLayout implements
             Media media = new Media(mVlcInstance, mSource);
             mPlayer.setMedia(media);
 
-            if (mAutoPlay) {
+            if (mAutoPlay || isOldSource) {
                 mPlayer.play();
+                if (isOldSource) {
+                    mPlayer.setTime(mPlayedTime);
+                }
             }
         }
     }
@@ -195,30 +222,6 @@ public class VLCVideoPlayer extends FrameLayout implements
         }
     }
 
-    private void adjustAspectRatio(int viewWidth, int viewHeight, int videoWidth, int videoHeight) {
-        final double aspectRatio = (double) videoHeight / videoWidth;
-        int newWidth, newHeight;
-
-        if (viewHeight > (int) (viewWidth * aspectRatio)) {
-            // limited by narrow width; restrict height
-            newWidth = viewWidth;
-            newHeight = (int) (viewWidth * aspectRatio);
-        } else {
-            // limited by short height; restrict width
-            newWidth = (int) (viewHeight / aspectRatio);
-            newHeight = viewHeight;
-        }
-
-        final int xoff = (viewWidth - newWidth) / 2;
-        final int yoff = (viewHeight - newHeight) / 2;
-
-        final Matrix txform = new Matrix();
-        mTextureView.getTransform(txform);
-        txform.setScale((float) newWidth / viewWidth, (float) newHeight / viewHeight);
-        txform.postTranslate(xoff, yoff);
-        mTextureView.setTransform(txform);
-    }
-
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
@@ -235,12 +238,16 @@ public class VLCVideoPlayer extends FrameLayout implements
         mPlayer.setEventListener(this);
         mPlayer.setVideoTrackEnabled(true);
 
-        // Inflate and add video view
-        mVideoViewFrame = li.inflate(R.layout.videoplayer_include_view, this, false);
-        addView(mVideoViewFrame);
+        // Instantiate and add TextureView for rendering
 
-        mTextureView = (TextureView)findViewById(R.id.videoView);
-        mTextureView.setSurfaceTextureListener(this);
+        mVideoFrame = li.inflate(R.layout.videoplayer_include_view, this, false);
+        addView(mVideoFrame);
+
+        mSurfaceFrame = (FrameLayout) findViewById(R.id.surface_frame);
+        mSurface = (SurfaceView) findViewById(R.id.surface_view);
+        mHolder = mSurface.getHolder();
+        mHolder.setFormat(PixelFormat.RGBX_8888);
+        mHolder.setKeepScreenOn(true);
 
         // Inflate and add progress
         mProgressFrame = li.inflate(R.layout.videoplayer_include_progress, this, false);
@@ -292,6 +299,7 @@ public class VLCVideoPlayer extends FrameLayout implements
         mBtnPlayPause.setImageDrawable(mPlayDrawable);
 
         setControlsEnabled(false);
+
         if (mSource != null)
             setSource(mSource);
     }
@@ -381,42 +389,118 @@ public class VLCVideoPlayer extends FrameLayout implements
         mClickFrame.setClickable(false);
     }
 
-    @Override
-    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
-        mTextureViewWidth = width;
-        mTextureViewHeight = height;
-        adjustAspectRatio(mTextureViewWidth, mTextureViewHeight, mVideoWidth, mVideoHeight);
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    private void changeSurfaceSize() {
+        int sw;
+        int sh;
 
-        IVLCVout vlcOut = mPlayer.getVLCVout();
-        if (!vlcOut.areViewsAttached()) {
-            vlcOut.addCallback(this);
-            vlcOut.setVideoView(mTextureView);
-            vlcOut.attachViews();
+        // get screen size
+        sw = ((Activity) getContext()).getWindow().getDecorView().getWidth();
+        sh = ((Activity) getContext()).getWindow().getDecorView().getHeight();
+
+        double dw = sw, dh = sh;
+        boolean isPortrait = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+
+        if (sw > sh && isPortrait || sw < sh && !isPortrait) {
+            dw = sh;
+            dh = sw;
         }
-    }
 
-    @Override
-    public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int width, int height) {
-        mTextureViewWidth = width;
-        mTextureViewHeight = height;
-        adjustAspectRatio(mTextureViewWidth, mTextureViewHeight, mVideoWidth, mVideoHeight);
-    }
+        // sanity check
+        if (dw * dh == 0 || mVideoWidth * mVideoHeight == 0) {
+            Log.e(TAG, "Invalid surface size");
+            return;
+        }
 
-    @Override
-    public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
-        return false;
-    }
+        // compute the aspect ratio
+        double ar, vw;
+        if (mSarDen == mSarNum) {
+            /* No indication about the density, assuming 1:1 */
+            vw = mVideoVisibleWidth;
+            ar = (double) mVideoVisibleWidth / (double) mVideoVisibleHeight;
+        } else {
+            /* Use the specified aspect ratio */
+            vw = mVideoVisibleWidth * (double) mSarNum / mSarDen;
+            ar = vw / mVideoVisibleHeight;
+        }
 
-    @Override
-    public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {
+        // compute the display aspect ratio
+        double dar = dw / dh;
 
+        switch (mCurrentSize) {
+            case SURFACE_BEST_FIT:
+                if (dar < ar)
+                    dh = dw / ar;
+                else
+                    dw = dh * ar;
+                break;
+            case SURFACE_FIT_HORIZONTAL:
+                dh = dw / ar;
+                break;
+            case SURFACE_FIT_VERTICAL:
+                dw = dh * ar;
+                break;
+            case SURFACE_FILL:
+                break;
+            case SURFACE_16_9:
+                ar = 16.0 / 9.0;
+                if (dar < ar)
+                    dh = dw / ar;
+                else
+                    dw = dh * ar;
+                break;
+            case SURFACE_4_3:
+                ar = 4.0 / 3.0;
+                if (dar < ar)
+                    dh = dw / ar;
+                else
+                    dw = dh * ar;
+                break;
+            case SURFACE_ORIGINAL:
+                dh = mVideoVisibleHeight;
+                dw = vw;
+                break;
+        }
+
+        SurfaceView surface;
+        SurfaceHolder surfaceHolder;
+        FrameLayout surfaceFrame;
+
+        surface = mSurface;
+        surfaceHolder = mHolder;
+        surfaceFrame = mSurfaceFrame;
+
+        // force surface buffer size
+        surfaceHolder.setFixedSize(mVideoWidth, mVideoHeight);
+
+        // set display size
+        ViewGroup.LayoutParams lp = surface.getLayoutParams();
+        lp.width = (int) Math.ceil(dw * mVideoWidth / mVideoVisibleWidth);
+        lp.height = (int) Math.ceil(dh * mVideoHeight / mVideoVisibleHeight);
+        surface.setLayoutParams(lp);
+
+        // set frame size (crop if necessary)
+        lp = surfaceFrame.getLayoutParams();
+        lp.width = (int) Math.floor(dw);
+        lp.height = (int) Math.floor(dh);
+        surfaceFrame.setLayoutParams(lp);
+
+        surface.invalidate();
     }
 
     @Override
     public void onNewLayout(IVLCVout vlcVout, int width, int height, int visibleWidth, int visibleHeight, int sarNum, int sarDen) {
-        mVideoWidth = visibleWidth;
-        mVideoHeight = visibleHeight;
-        adjustAspectRatio(mTextureViewWidth, mTextureViewHeight, mVideoWidth, mVideoHeight);
+        if (width * height == 0)
+            return;
+
+        // store video size
+        mVideoWidth = width;
+        mVideoHeight = height;
+        mVideoVisibleWidth  = visibleWidth;
+        mVideoVisibleHeight = visibleHeight;
+        mSarNum = sarNum;
+        mSarDen = sarDen;
+        changeSurfaceSize();
     }
 
     @Override
@@ -463,7 +547,6 @@ public class VLCVideoPlayer extends FrameLayout implements
                 break;
             case MediaPlayer.Event.Buffering:
                 float buffering = event.getBuffering();
-                Log.d(TAG, "Buffering: " + buffering);
                 if (mSeeker != null) {
                     if (buffering == 100) mSeeker.setSecondaryProgress(0);
                     else mSeeker.setSecondaryProgress(Math.round(mSeeker.getMax() * buffering));
@@ -477,6 +560,7 @@ public class VLCVideoPlayer extends FrameLayout implements
                 mLabelDuration.setText(Util.getDurationString(dur - pos, true));
                 mSeeker.setProgress((int)pos);
                 mSeeker.setMax((int)dur);
+                mPlayedTime = pos;
                 break;
             case MediaPlayer.Event.EndReached:
                 Log.d(TAG, "EndReached");
@@ -516,6 +600,13 @@ public class VLCVideoPlayer extends FrameLayout implements
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+
+        IVLCVout vlcOut = mPlayer.getVLCVout();
+        if (!vlcOut.areViewsAttached()) {
+            vlcOut.addCallback(this);
+            vlcOut.setVideoView(mSurface);
+            vlcOut.attachViews();
+        }
     }
 
     @Override
@@ -531,6 +622,12 @@ public class VLCVideoPlayer extends FrameLayout implements
         mControlsFrame = null;
         mClickFrame = null;
         mProgressFrame = null;
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        changeSurfaceSize();
     }
 
     @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
