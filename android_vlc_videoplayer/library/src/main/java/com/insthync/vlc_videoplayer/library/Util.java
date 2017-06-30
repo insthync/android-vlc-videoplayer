@@ -1,4 +1,4 @@
-package com.insthync.android_vlc_videoplayer;
+package com.insthync.vlc_videoplayer.library;
 
 import android.content.Context;
 import android.content.res.TypedArray;

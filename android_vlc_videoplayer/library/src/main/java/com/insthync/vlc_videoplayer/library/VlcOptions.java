@@ -1,6 +1,8 @@
-package com.insthync.android_vlc_videoplayer;
+package com.insthync.vlc_videoplayer.library;
 
 import android.util.Log;
+
+import org.videolan.libvlc.BuildConfig;
 import org.videolan.libvlc.util.VLCUtil;
 import java.util.ArrayList;
 import java.util.List;
