@@ -462,15 +462,14 @@ public class VLCVideoPlayer extends FrameLayout implements
                 }
                 break;
             case MediaPlayer.Event.Buffering:
-                Log.d(TAG, "Buffering");
                 float buffering = event.getBuffering();
+                Log.d(TAG, "Buffering: " + buffering);
                 if (mSeeker != null) {
                     if (buffering == 100) mSeeker.setSecondaryProgress(0);
                     else mSeeker.setSecondaryProgress(Math.round(mSeeker.getMax() * buffering));
                 }
                 break;
             case MediaPlayer.Event.TimeChanged:
-                Log.d(TAG, "TimeChanged");
                 long pos = mPlayer.getTime();
                 final long dur = mPlayer.getLength();
                 if (pos > dur) pos = dur;
